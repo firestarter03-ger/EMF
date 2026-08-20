@@ -7,6 +7,7 @@ import net.fire.emf.client.config.EmfDataFolder;
 import net.fire.emf.client.debug.DialogScreenDebug;
 import net.fire.emf.client.function.OffhandSwapper;
 import net.fire.emf.client.overlay.LevelInfoOverlay;
+import net.fire.emf.client.overlay.AutominerCooldownOverlay;
 import net.fire.emf.client.overlay.SkillFruitOverlay;
 import net.fire.emf.client.overlay.SkillInfoOverlay;
 import net.fire.emf.client.overlay.editor.OverlayEditorUtility;
@@ -31,6 +32,7 @@ public class ElementsMoreFeaturesClient implements ClientModInitializer {
 		SkillInfoOverlay.register();
 		LevelInfoOverlay.register();
 		SkillFruitOverlay.register();
+		AutominerCooldownOverlay.register();
 		TitleAlerts.register();
 		DialogScreenDebug.register();
 		CollectionScanner.register();

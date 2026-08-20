@@ -143,6 +143,36 @@ public class EmfConfig {
 	public List<SkillFruitTimer> skillFruitTimers = new ArrayList<>();
 
 	@SerialEntry
+	public boolean showAutominerCooldownOverlay = true;
+
+	@SerialEntry
+	public boolean autominerCooldownOverlayEnabled = true;
+
+	@SerialEntry
+	public int autominerCooldownOverlayX = 8;
+
+	@SerialEntry
+	public int autominerCooldownOverlayY = 194;
+
+	@SerialEntry
+	public float autominerCooldownOverlayScale = 1.0f;
+
+	@SerialEntry
+	public boolean autominerCooldownShowBackground = true;
+
+	@SerialEntry
+	public boolean autominerCooldownShowTitle = false;
+
+	@SerialEntry
+	public boolean autominerCooldownPlaySound = true;
+
+	@SerialEntry
+	public LootAlertSound autominerCooldownSound = LootAlertSound.BELL;
+
+	@SerialEntry
+	public float autominerCooldownSoundPitch = LootRarityAlerts.DEFAULT_PITCH;
+
+	@SerialEntry
 	public boolean craftingTitleEnabled = true;
 
 	@SerialEntry
@@ -223,6 +253,10 @@ public class EmfConfig {
 	public static boolean skillFruitOverlayVisible() {
 		EmfConfig config = HANDLER.instance();
 		return config.showSkillFruitOverlay && config.skillFruitOverlayEnabled;
+	}
+
+	public static boolean autominerCooldownOverlayVisible() {
+		return OffhandSwapper.isDetectionEnabled();
 	}
 
 	public static int resourceBagHideAfterMs() {
@@ -348,6 +382,76 @@ public class EmfConfig {
 				.build();
 		lootAlerts[0] = lootRarityAlerts;
 
+		Option<Float> autominerPitch = Option.<Float>createBuilder()
+				.name(Component.literal("Sound Höhe"))
+				.description(OptionDescription.of(Component.literal(
+						"Tonhöhe der Note-Block-Sounds. Bei Challenge Complete ohne Wirkung.")))
+				.binding(LootRarityAlerts.DEFAULT_PITCH, () -> HANDLER.instance().autominerCooldownSoundPitch, value -> HANDLER.instance().autominerCooldownSoundPitch = value)
+				.controller(opt -> FloatSliderControllerBuilder.create(opt)
+						.range(0.5f, 2.0f)
+						.step(0.001f)
+						.formatValue(value -> Component.literal(String.format(Locale.US, "%.3f", value))))
+				.available(HANDLER.instance().offhandSwapperEnabled
+						&& HANDLER.instance().autominerCooldownPlaySound
+						&& (HANDLER.instance().autominerCooldownSound == null || HANDLER.instance().autominerCooldownSound.usesPitch()))
+				.build();
+
+		@SuppressWarnings("unchecked")
+		final Option<Boolean>[] autominerSoundToggle = new Option[1];
+
+		Option<LootAlertSound> autominerSound = Option.<LootAlertSound>createBuilder()
+				.name(Component.literal("Sound"))
+				.description(OptionDescription.of(Component.literal(
+						"Notenblock oder Challenge-Complete-Sound.\nStandard: Bell.")))
+				.binding(LootAlertSound.BELL, () -> HANDLER.instance().autominerCooldownSound, value -> HANDLER.instance().autominerCooldownSound = value)
+				.controller(opt -> EnumDropdownControllerBuilder.create(opt)
+						.formatValue(value -> Component.literal(value.displayName())))
+				.available(HANDLER.instance().offhandSwapperEnabled && HANDLER.instance().autominerCooldownPlaySound)
+				.addListener((option, event) -> autominerPitch.setAvailable(
+						HANDLER.instance().offhandSwapperEnabled
+								&& autominerSoundToggle[0] != null
+								&& autominerSoundToggle[0].pendingValue()
+								&& option.pendingValue().usesPitch()))
+				.build();
+
+		Option<Boolean> autominerSoundEnabled = Option.<Boolean>createBuilder()
+				.name(Component.literal("Sound an/aus"))
+				.description(OptionDescription.of(Component.literal(
+						"Spielt einen Sound, wenn der Autominer-Cooldown abgelaufen ist.")))
+				.binding(true, () -> HANDLER.instance().autominerCooldownPlaySound, value -> HANDLER.instance().autominerCooldownPlaySound = value)
+				.controller(TickBoxControllerBuilder::create)
+				.available(HANDLER.instance().offhandSwapperEnabled)
+				.addListener((option, event) -> {
+					boolean enabled = HANDLER.instance().offhandSwapperEnabled && option.pendingValue();
+					autominerSound.setAvailable(enabled);
+					autominerPitch.setAvailable(enabled && autominerSound.pendingValue().usesPitch());
+				})
+				.build();
+		autominerSoundToggle[0] = autominerSoundEnabled;
+
+		Option<String> autominerHotkey = Option.<String>createBuilder()
+				.name(Component.literal("Hotkey"))
+				.description(OptionDescription.of(Component.literal(
+						"Taste zum De-/Aktivieren der Autominer-Erkennung. Klicken, dann Taste drücken.")))
+				.binding("key.keyboard.r", OffhandSwapper::currentHotkeyName, OffhandSwapper::setHotkeyFromConfig)
+				.customController(KeyBindController::new)
+				.build();
+
+		Option<Boolean> autominerDetection = Option.<Boolean>createBuilder()
+				.name(Component.literal("Autominer Erkennung an/aus"))
+				.description(OptionDescription.of(Component.literal(
+						"Erkennt Autominer in der Mainhand und startet beim Abbauen den Cooldown.\nIm Spiel per Hotkey oder Overlay-Editor umschaltbar.\nOverlay-Optionen findest du im Overlay-Editor.")))
+				.binding(false, () -> HANDLER.instance().offhandSwapperEnabled, value -> OffhandSwapper.setDetectionEnabled(value, false))
+				.controller(TickBoxControllerBuilder::create)
+				.addListener((option, event) -> {
+					boolean enabled = option.pendingValue();
+					autominerSoundEnabled.setAvailable(enabled);
+					boolean soundOn = enabled && autominerSoundEnabled.pendingValue();
+					autominerSound.setAvailable(soundOn);
+					autominerPitch.setAvailable(soundOn && autominerSound.pendingValue().usesPitch());
+				})
+				.build();
+
 		Option<Integer> collectionInterval = Option.<Integer>createBuilder()
 				.name(Component.literal("Intervall"))
 				.description(OptionDescription.of(Component.literal(
@@ -373,7 +477,7 @@ public class EmfConfig {
 				.title(Component.literal("Elements More Features"))
 				.category(ConfigCategory.createBuilder()
 						.name(Component.literal("Benachrichtigungen"))
-						.tooltip(Component.literal("Optionen für Crafting-, Loot- und Resourcebag-Benachrichtigungen"))
+						.tooltip(Component.literal("Optionen für Crafting-, Loot-, Autominer- und Resourcebag-Benachrichtigungen"))
 						.group(OptionGroup.createBuilder()
 								.name(Component.literal("Crafting abgeschlossen"))
 								.option(Option.<Boolean>createBuilder()
@@ -400,30 +504,18 @@ public class EmfConfig {
 								.option(resourceBagHide)
 								.option(resourceBagHideAfter)
 								.build())
+						.group(OptionGroup.createBuilder()
+								.name(Component.literal("Autominer Erkennung"))
+								.option(autominerDetection)
+								.option(autominerHotkey)
+								.option(autominerSoundEnabled)
+								.option(autominerSound)
+								.option(autominerPitch)
+								.build())
 						.build())
 				.category(ConfigCategory.createBuilder()
 						.name(Component.literal("Funktionen"))
 						.tooltip(Component.literal("Zusätzliche Spiel-Funktionen"))
-						.group(OptionGroup.createBuilder()
-								.name(Component.literal("Automine - Offhand Swapper"))
-								.option(Option.<Boolean>createBuilder()
-										.name(Component.literal("Swapper an/aus"))
-										.description(OptionDescription.of(Component.literal(
-												"Aktiviert den Offhand-Swapper.\nIm Spiel kannst du denselben Schalter per Hotkey umlegen.\n\nAutominer Item in die Mainhand & Item Ohne Autominer in die Offhand legen bei Start.")))
-										.binding(false, () -> HANDLER.instance().offhandSwapperEnabled, value -> HANDLER.instance().offhandSwapperEnabled = value)
-										.controller(TickBoxControllerBuilder::create)
-										.build())
-								.option(Option.<String>createBuilder()
-										.name(Component.literal("Hotkey"))
-										.description(OptionDescription.of(Component.literal(
-												"Taste zum De-/Aktivieren des Offhand Swappers. Klicken, dann Abbau Taste drücken.")))
-										.binding("key.keyboard.r", () -> HANDLER.instance().offhandSwapperHotkey, value -> {
-											HANDLER.instance().offhandSwapperHotkey = value;
-											OffhandSwapper.applyHotkey(value);
-										})
-										.customController(KeyBindController::new)
-										.build())
-								.build())
 						.group(OptionGroup.createBuilder()
 								.name(Component.literal("Collections Auslesen"))
 								.option(collectionScanner)

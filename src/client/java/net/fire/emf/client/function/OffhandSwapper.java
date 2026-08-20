@@ -1,19 +1,21 @@
 package net.fire.emf.client.function;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fire.emf.client.config.EmfConfig;
 import net.fire.emf.client.overlay.editor.KeyCategories;
+import net.fire.emf.client.title.LootAlertSound;
+import net.fire.emf.client.title.LootRarityAlerts;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
@@ -28,14 +30,19 @@ public final class OffhandSwapper {
 	private static final Pattern AUTOMINER = Pattern.compile("(?is)Passiv:\\s*Autominer");
 	private static final Pattern COOLDOWN = Pattern.compile("(?i)Cooldown:\\s*([0-9]+(?:[.,][0-9]+)?)\\s*s");
 	private static final String DEFAULT_HOTKEY = "key.keyboard.r";
-	private static final long RETURN_CONFIRM_MS = 200L;
+	private static final long EXPIRE_FLASH_MS = 3000L;
 
 	private static KeyMapping toggleKey;
+	private static boolean hotkeySyncReady;
 	private static long cooldownUntilMs;
-	private static long returnUntilMs;
-	private static boolean waitingForCooldown;
-	private static boolean waitingForReturn;
 	private static long storedCooldownMs;
+	private static boolean cooldownActive;
+	private static boolean expireNotified;
+	private static long expireFlashUntilMs;
+	private static int pendingSoundPlays;
+	private static float pendingSoundPitch;
+	private static float pendingSoundVolume;
+	private static net.minecraft.sounds.SoundEvent pendingSound;
 
 	private OffhandSwapper() {
 	}
@@ -47,8 +54,76 @@ public final class OffhandSwapper {
 				GLFW.GLFW_KEY_R,
 				KeyCategories.of("emf", "functions")
 		));
-		applyHotkey(EmfConfig.HANDLER.instance().offhandSwapperHotkey);
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		applyHotkey(config.offhandSwapperHotkey);
+		syncOverlayFlags(config.offhandSwapperEnabled);
+		ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+			applyConfigHotkeyToKeyMapping(true);
+			hotkeySyncReady = true;
+		});
 		ClientTickEvents.END_CLIENT_TICK.register(OffhandSwapper::onClientTick);
+	}
+
+	public static String currentHotkeyName() {
+		if (toggleKey != null) {
+			return toggleKey.saveString();
+		}
+		String configured = EmfConfig.HANDLER.instance().offhandSwapperHotkey;
+		return configured == null || configured.isBlank() ? DEFAULT_HOTKEY : configured;
+	}
+
+	public static void setHotkeyFromConfig(String keyName) {
+		String normalized = normalizeKeyName(keyName);
+		EmfConfig.HANDLER.instance().offhandSwapperHotkey = normalized;
+		applyHotkey(normalized);
+		saveMinecraftOptions();
+	}
+
+	public static void applyConfigHotkeyToKeyMapping(boolean saveOptions) {
+		applyHotkey(EmfConfig.HANDLER.instance().offhandSwapperHotkey);
+		if (saveOptions) {
+			saveMinecraftOptions();
+		}
+	}
+
+	public static void setDetectionEnabled(boolean enabled, boolean announce) {
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		boolean changed = config.offhandSwapperEnabled != enabled
+				|| config.showAutominerCooldownOverlay != enabled
+				|| config.autominerCooldownOverlayEnabled != enabled;
+		config.offhandSwapperEnabled = enabled;
+		syncOverlayFlags(enabled);
+		if (changed) {
+			EmfConfig.HANDLER.save();
+		}
+		if (!enabled) {
+			clearCooldownState();
+			pendingSoundPlays = 0;
+			pendingSound = null;
+		}
+		if (announce) {
+			announceToggle(enabled);
+		}
+	}
+
+	private static void syncOverlayFlags(boolean enabled) {
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		config.showAutominerCooldownOverlay = enabled;
+		config.autominerCooldownOverlayEnabled = enabled;
+	}
+
+	private static void announceToggle(boolean enabled) {
+		ChatFormatting stateColor = enabled ? ChatFormatting.GREEN : ChatFormatting.RED;
+		String stateText = enabled ? "aktiviert." : "deaktiviert.";
+		Component message = Component.empty()
+				.append(Component.literal("[EMF]").withStyle(ChatFormatting.GOLD))
+				.append(Component.literal(" Autominer-Erkennung " + stateText).withStyle(stateColor));
+		Minecraft client = Minecraft.getInstance();
+		if (client.player != null) {
+			client.player.sendSystemMessage(message);
+		} else if (client.gui != null) {
+			client.gui.getChat().addClientSystemMessage(message);
+		}
 	}
 
 	public static void applyHotkey(String keyName) {
@@ -56,7 +131,7 @@ public final class OffhandSwapper {
 			return;
 		}
 		try {
-			toggleKey.setKey(InputConstants.getKey(keyName == null || keyName.isBlank() ? DEFAULT_HOTKEY : keyName));
+			toggleKey.setKey(InputConstants.getKey(normalizeKeyName(keyName)));
 			KeyMapping.resetMapping();
 		} catch (RuntimeException ignored) {
 			toggleKey.setKey(InputConstants.getKey(DEFAULT_HOTKEY));
@@ -65,8 +140,32 @@ public final class OffhandSwapper {
 	}
 
 	public static void syncHotkeyToConfig() {
-		if (toggleKey != null) {
-			EmfConfig.HANDLER.instance().offhandSwapperHotkey = toggleKey.saveString();
+		syncKeyMappingToConfig(false);
+	}
+
+	private static void syncKeyMappingToConfig(boolean saveIfChanged) {
+		if (!hotkeySyncReady || toggleKey == null) {
+			return;
+		}
+		String bound = toggleKey.saveString();
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		if (bound.equals(config.offhandSwapperHotkey)) {
+			return;
+		}
+		config.offhandSwapperHotkey = bound;
+		if (saveIfChanged) {
+			EmfConfig.HANDLER.save();
+		}
+	}
+
+	private static String normalizeKeyName(String keyName) {
+		return keyName == null || keyName.isBlank() ? DEFAULT_HOTKEY : keyName;
+	}
+
+	private static void saveMinecraftOptions() {
+		Minecraft client = Minecraft.getInstance();
+		if (client != null && client.options != null) {
+			client.options.save();
 		}
 	}
 
@@ -74,9 +173,63 @@ public final class OffhandSwapper {
 		return toggleKey;
 	}
 
-	private static void onClientTick(Minecraft client) {
+	public static boolean isDetectionEnabled() {
+		return EmfConfig.HANDLER.instance().offhandSwapperEnabled;
+	}
+
+	public static boolean isCooldownActive() {
+		return cooldownActive && System.currentTimeMillis() < cooldownUntilMs;
+	}
+
+	public static boolean isExpireFlashActive() {
+		return System.currentTimeMillis() < expireFlashUntilMs;
+	}
+
+	public static long remainingCooldownMs() {
+		if (!cooldownActive) {
+			return 0L;
+		}
+		return Math.max(0L, cooldownUntilMs - System.currentTimeMillis());
+	}
+
+	public static long storedCooldownMs() {
+		return storedCooldownMs;
+	}
+
+	public static boolean hasAutominerInMainHand(Minecraft client) {
 		if (client == null || client.player == null) {
-			resetCycle();
+			return false;
+		}
+		return readAutominer(client, client.player.getMainHandItem()) != null;
+	}
+
+	public static String statusText() {
+		if (!isDetectionEnabled()) {
+			return "Aus";
+		}
+		if (isCooldownActive()) {
+			return formatSeconds(remainingCooldownMs() / 1000.0);
+		}
+		if (isExpireFlashActive()) {
+			return "Bereit";
+		}
+		Minecraft client = Minecraft.getInstance();
+		if (hasAutominerInMainHand(client)) {
+			return "Bereit";
+		}
+		return "Kein Autominer";
+	}
+
+	private static void onClientTick(Minecraft client) {
+		if (client == null) {
+			resetState();
+			return;
+		}
+
+		syncKeyMappingToConfig(true);
+
+		if (client.player == null) {
+			resetState();
 			return;
 		}
 
@@ -84,91 +237,95 @@ public final class OffhandSwapper {
 			toggleActive(client.player);
 		}
 
-		if (!EmfConfig.HANDLER.instance().offhandSwapperEnabled) {
-			if (waitingForCooldown) {
-				swapOffhand(client);
-			}
-			resetCycle();
+		tickPendingSound(client);
+
+		if (!isDetectionEnabled()) {
+			clearCooldownState();
 			return;
 		}
 		if (client.screen != null || client.player.isSpectator()) {
 			return;
 		}
 
-		tickSwapCycle(client);
+		tickCooldown(client);
 	}
 
 	private static void toggleActive(LocalPlayer player) {
-		EmfConfig config = EmfConfig.HANDLER.instance();
-		config.offhandSwapperEnabled = !config.offhandSwapperEnabled;
-		EmfConfig.HANDLER.save();
-		boolean enabled = config.offhandSwapperEnabled;
-		ChatFormatting stateColor = enabled ? ChatFormatting.GREEN : ChatFormatting.RED;
-		String stateText = enabled ? "aktiviert." : "deaktiviert.";
-		Minecraft.getInstance().gui.getChat().addClientSystemMessage(
-				Component.empty()
-						.append(Component.literal("[EMF]").withStyle(ChatFormatting.GOLD))
-						.append(Component.literal(" Offhand Swapper " + stateText).withStyle(stateColor))
-		);
-		if (!enabled) {
-			if (waitingForCooldown) {
-				swapOffhand(Minecraft.getInstance());
-			}
-			resetCycle();
-		}
+		setDetectionEnabled(!isDetectionEnabled(), true);
 	}
 
-	private static void tickSwapCycle(Minecraft client) {
+	private static void tickCooldown(Minecraft client) {
 		LocalPlayer player = client.player;
 		if (player == null) {
 			return;
 		}
 
-		if (waitingForCooldown) {
-			if (System.currentTimeMillis() >= cooldownUntilMs) {
-				swapOffhand(client);
-				waitingForCooldown = false;
-				waitingForReturn = true;
-				returnUntilMs = System.currentTimeMillis() + RETURN_CONFIRM_MS;
-			}
-			return;
-		}
-
+		long now = System.currentTimeMillis();
 		AutominerInfo info = readAutominer(client, player.getMainHandItem());
 		if (info != null) {
-			storedCooldownMs = info.cooldownMs;
-			if (waitingForReturn) {
-				if (System.currentTimeMillis() < returnUntilMs) {
-					return;
-				}
-				waitingForReturn = false;
-			}
-		} else if (waitingForReturn) {
-			returnUntilMs = System.currentTimeMillis() + RETURN_CONFIRM_MS;
-			return;
-		} else {
+			storedCooldownMs = info.cooldownMs();
+		} else if (!cooldownActive) {
 			storedCooldownMs = 0L;
+		}
+
+		if (cooldownActive) {
+			if (now >= cooldownUntilMs) {
+				cooldownActive = false;
+				if (!expireNotified) {
+					expireNotified = true;
+					expireFlashUntilMs = now + EXPIRE_FLASH_MS;
+					notifyCooldownExpired(client);
+				}
+			}
 			return;
 		}
 
+		if (info == null || storedCooldownMs <= 0L) {
+			return;
+		}
 		if (!client.options.keyAttack.isDown()) {
 			return;
 		}
 
-		swapOffhand(client);
-		waitingForCooldown = true;
-		cooldownUntilMs = System.currentTimeMillis() + storedCooldownMs;
+		cooldownActive = true;
+		expireNotified = false;
+		expireFlashUntilMs = 0L;
+		cooldownUntilMs = now + storedCooldownMs;
 	}
 
-	private static void swapOffhand(Minecraft client) {
-		if (client.player == null || client.player.isSpectator() || client.getConnection() == null) {
+	private static void notifyCooldownExpired(Minecraft client) {
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		if (config.autominerCooldownShowTitle && client.gui != null) {
+			client.gui.setTimes(0, 60, 20);
+			client.gui.setTitle(Component.literal("Autominer").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+			client.gui.setSubtitle(Component.literal("Cooldown abgelaufen").withStyle(ChatFormatting.AQUA));
+		}
+		if (!config.autominerCooldownPlaySound || client.getSoundManager() == null) {
 			return;
 		}
-		client.getConnection().send(new ServerboundPlayerActionPacket(
-				ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND,
-				BlockPos.ZERO,
-				Direction.DOWN
-		));
+		LootAlertSound sound = config.autominerCooldownSound == null ? LootAlertSound.BELL : config.autominerCooldownSound;
+		pendingSound = sound.soundEvent();
+		pendingSoundPitch = sound.usesPitch() ? clampPitch(config.autominerCooldownSoundPitch) : 1.0f;
+		pendingSoundVolume = 1.0f;
+		pendingSoundPlays = sound.playCount();
+	}
+
+	private static void tickPendingSound(Minecraft client) {
+		if (pendingSoundPlays <= 0 || client == null || client.getSoundManager() == null || pendingSound == null) {
+			return;
+		}
+		client.getSoundManager().play(SimpleSoundInstance.forUI(pendingSound, pendingSoundPitch, pendingSoundVolume));
+		pendingSoundPlays--;
+		if (pendingSoundPlays <= 0) {
+			pendingSound = null;
+		}
+	}
+
+	private static float clampPitch(float pitch) {
+		if (Float.isNaN(pitch) || pitch <= 0.0f) {
+			return LootRarityAlerts.DEFAULT_PITCH;
+		}
+		return Math.max(0.5f, Math.min(2.0f, pitch));
 	}
 
 	private static AutominerInfo readAutominer(Minecraft client, ItemStack stack) {
@@ -231,6 +388,13 @@ public final class OffhandSwapper {
 		}
 	}
 
+	private static String formatSeconds(double seconds) {
+		if (seconds < 10.0) {
+			return String.format(java.util.Locale.ROOT, "%.1fsek", seconds);
+		}
+		return String.format(java.util.Locale.ROOT, "%.0fsek", seconds);
+	}
+
 	private static String clean(String text) {
 		if (text == null) {
 			return "";
@@ -238,11 +402,18 @@ public final class OffhandSwapper {
 		return COLOR_CODES.matcher(text).replaceAll("").trim();
 	}
 
-	private static void resetCycle() {
-		waitingForCooldown = false;
-		waitingForReturn = false;
+	private static void clearCooldownState() {
+		cooldownActive = false;
+		expireNotified = false;
 		cooldownUntilMs = 0L;
-		returnUntilMs = 0L;
+		expireFlashUntilMs = 0L;
+		storedCooldownMs = 0L;
+	}
+
+	private static void resetState() {
+		clearCooldownState();
+		pendingSoundPlays = 0;
+		pendingSound = null;
 	}
 
 	private record AutominerInfo(long cooldownMs) {

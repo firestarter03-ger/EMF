@@ -2,6 +2,7 @@ package net.fire.emf.client.overlay.editor;
 
 import net.fire.emf.ElementsMoreFeatures;
 import net.fire.emf.client.config.EmfConfig;
+import net.fire.emf.client.function.OffhandSwapper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -59,6 +60,7 @@ public class OverlayEditorScreen extends Screen {
 		overlays.add(new SkillInfoDraggableOverlay());
 		overlays.add(new LevelInfoDraggableOverlay());
 		overlays.add(new SkillFruitDraggableOverlay());
+		overlays.add(new AutominerCooldownDraggableOverlay());
 	}
 
 	@Override
@@ -132,6 +134,8 @@ public class OverlayEditorScreen extends Screen {
 			renderTargetField(context, mouseX, mouseY, delta);
 		} else if (openSettings == LineSettings.FRUIT) {
 			renderFruitLineSettings(context, mouseX, mouseY);
+		} else if (openSettings == LineSettings.AUTOMINER) {
+			renderAutominerLineSettings(context, mouseX, mouseY);
 		}
 		renderOverlayHandleTooltips(context, mouseX, mouseY);
 	}
@@ -254,6 +258,17 @@ public class OverlayEditorScreen extends Screen {
 		}
 	}
 
+	private void layoutAutominerSettingsBox() {
+		skillSettingsBoxWidth = 260;
+		skillSettingsBoxHeight = 130;
+		skillSettingsBoxX = width / 2 - skillSettingsBoxWidth / 2;
+		skillSettingsBoxY = height / 2 - skillSettingsBoxHeight / 2;
+		if (targetField != null) {
+			targetField.setVisible(false);
+			targetField.setFocused(false);
+		}
+	}
+
 	private void layoutLevelSettingsBox() {
 		EmfConfig config = EmfConfig.HANDLER.instance();
 		skillSettingsBoxWidth = 260;
@@ -355,6 +370,22 @@ public class OverlayEditorScreen extends Screen {
 		int checkboxX = skillSettingsBoxX + 10;
 		y = drawSettingRow(context, checkboxX, y, "Hintergrund de-/aktivieren", config.skillFruitShowBackground);
 		drawSettingRow(context, checkboxX, y, "Dauerhaft anzeigen", config.skillFruitAlwaysShow);
+	}
+
+	private void renderAutominerLineSettings(GuiGraphicsExtractor context, int mouseX, int mouseY) {
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		layoutAutominerSettingsBox();
+
+		context.fill(0, 0, width, height, 0xA0000000);
+		context.fill(skillSettingsBoxX, skillSettingsBoxY, skillSettingsBoxX + skillSettingsBoxWidth, skillSettingsBoxY + skillSettingsBoxHeight, 0xFF000000);
+		context.outline(skillSettingsBoxX, skillSettingsBoxY, skillSettingsBoxWidth, skillSettingsBoxHeight, 0xFFFFFFFF);
+		context.text(font, "Autominer Cooldown Settings", skillSettingsBoxX + 10, skillSettingsBoxY + 10, 0xFFFFFF00, false);
+
+		int y = skillSettingsBoxY + 35;
+		int checkboxX = skillSettingsBoxX + 10;
+		y = drawSettingRow(context, checkboxX, y, "Hintergrund an/aus", config.autominerCooldownShowBackground);
+		y = drawSettingRow(context, checkboxX, y, "Im Titel anzeigen an/aus", config.autominerCooldownShowTitle);
+		drawSettingRow(context, checkboxX, y, "Sound an/aus", config.autominerCooldownPlaySound);
 	}
 
 	private int drawSettingRow(GuiGraphicsExtractor context, int x, int y, String label, boolean enabled) {
@@ -463,6 +494,8 @@ public class OverlayEditorScreen extends Screen {
 					toggleLineSettings(LineSettings.LEVEL);
 				} else if (overlay instanceof SkillFruitDraggableOverlay) {
 					toggleLineSettings(LineSettings.FRUIT);
+				} else if (overlay instanceof AutominerCooldownDraggableOverlay) {
+					toggleLineSettings(LineSettings.AUTOMINER);
 				}
 				return true;
 			}
@@ -493,6 +526,8 @@ public class OverlayEditorScreen extends Screen {
 			layoutLevelSettingsBox();
 		} else if (openSettings == LineSettings.FRUIT) {
 			layoutFruitSettingsBox();
+		} else if (openSettings == LineSettings.AUTOMINER) {
+			layoutAutominerSettingsBox();
 		}
 
 		if (isInsideTargetField(mouseX, mouseY)) {
@@ -516,6 +551,9 @@ public class OverlayEditorScreen extends Screen {
 		}
 		if (openSettings == LineSettings.LEVEL) {
 			return handleLevelSettingsClick(mouseX, mouseY);
+		}
+		if (openSettings == LineSettings.AUTOMINER) {
+			return handleAutominerSettingsClick(mouseX, mouseY);
 		}
 		return handleFruitSettingsClick(mouseX, mouseY);
 	}
@@ -634,6 +672,30 @@ public class OverlayEditorScreen extends Screen {
 		return true;
 	}
 
+	private boolean handleAutominerSettingsClick(double mouseX, double mouseY) {
+		EmfConfig config = EmfConfig.HANDLER.instance();
+		int y = skillSettingsBoxY + 35;
+		int checkboxX = skillSettingsBoxX + 10;
+		if (clickSettingRow(mouseX, mouseY, checkboxX, y, "Hintergrund an/aus")) {
+			config.autominerCooldownShowBackground = !config.autominerCooldownShowBackground;
+			EmfConfig.HANDLER.save();
+			return true;
+		}
+		y += SETTINGS_ROW_HEIGHT;
+		if (clickSettingRow(mouseX, mouseY, checkboxX, y, "Im Titel anzeigen an/aus")) {
+			config.autominerCooldownShowTitle = !config.autominerCooldownShowTitle;
+			EmfConfig.HANDLER.save();
+			return true;
+		}
+		y += SETTINGS_ROW_HEIGHT;
+		if (clickSettingRow(mouseX, mouseY, checkboxX, y, "Sound an/aus")) {
+			config.autominerCooldownPlaySound = !config.autominerCooldownPlaySound;
+			EmfConfig.HANDLER.save();
+			return true;
+		}
+		return true;
+	}
+
 	private boolean clickSettingRow(double mouseX, double mouseY, int x, int y, String label) {
 		int textWidth = font.width(label);
 		return (mouseX >= x && mouseX <= x + CHECKBOX_SIZE && mouseY >= y && mouseY <= y + CHECKBOX_SIZE)
@@ -676,8 +738,10 @@ public class OverlayEditorScreen extends Screen {
 			layoutSkillSettingsBox();
 		} else if (settings == LineSettings.LEVEL) {
 			layoutLevelSettingsBox();
-		} else {
+		} else if (settings == LineSettings.FRUIT) {
 			layoutFruitSettingsBox();
+		} else {
+			layoutAutominerSettingsBox();
 		}
 	}
 
@@ -757,6 +821,8 @@ public class OverlayEditorScreen extends Screen {
 		} else if (overlay instanceof SkillFruitDraggableOverlay) {
 			config.showSkillFruitOverlay = enabled;
 			config.skillFruitOverlayEnabled = enabled;
+		} else if (overlay instanceof AutominerCooldownDraggableOverlay) {
+			OffhandSwapper.setDetectionEnabled(enabled, false);
 		}
 	}
 
@@ -920,6 +986,7 @@ public class OverlayEditorScreen extends Screen {
 		NONE,
 		FARMING,
 		LEVEL,
-		FRUIT
+		FRUIT,
+		AUTOMINER
 	}
 }
