@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 public final class LootRarityAlerts {
 	private static final Pattern COLOR_CODES = Pattern.compile("§x(?:§[0-9a-fA-F]){6}|§[0-9a-fk-orA-FK-OR]");
 	private static final String LOOT_PREFIX = "Loot:";
-	public static final LootAlertSound DEFAULT_SOUND = LootAlertSound.BELL;
+	public static final LootAlertSound DEFAULT_SOUND = LootAlertSound.CHALLENGE_COMPLETE;
 	public static final float DEFAULT_PITCH = 1.059463f;
 
 	private static int bellsLeft;

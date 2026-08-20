@@ -164,7 +164,7 @@ public class EmfConfig {
 	public LootRarity lootRarityMinimum = LootRarity.EPIC;
 
 	@SerialEntry
-	public LootAlertSound lootRaritySound = LootAlertSound.BELL;
+	public LootAlertSound lootRaritySound = LootAlertSound.CHALLENGE_COMPLETE;
 
 	@SerialEntry
 	public float lootRaritySoundPitch = LootRarityAlerts.DEFAULT_PITCH;
@@ -322,8 +322,8 @@ public class EmfConfig {
 		Option<LootAlertSound> lootRaritySound = Option.<LootAlertSound>createBuilder()
 				.name(Component.literal("Sound"))
 				.description(OptionDescription.of(Component.literal(
-						"Notenblock oder Challenge-Complete-Sound.\nStandard: Bell.")))
-				.binding(LootAlertSound.BELL, () -> HANDLER.instance().lootRaritySound, value -> HANDLER.instance().lootRaritySound = value)
+						"Notenblock oder Challenge-Complete-Sound.\nStandard: Challenge Complete.")))
+				.binding(LootAlertSound.CHALLENGE_COMPLETE, () -> HANDLER.instance().lootRaritySound, value -> HANDLER.instance().lootRaritySound = value)
 				.controller(opt -> EnumDropdownControllerBuilder.create(opt)
 						.formatValue(value -> Component.literal(value.displayName())))
 				.available(HANDLER.instance().lootRarityAlertsEnabled)
@@ -351,7 +351,7 @@ public class EmfConfig {
 		Option<Integer> collectionInterval = Option.<Integer>createBuilder()
 				.name(Component.literal("Intervall"))
 				.description(OptionDescription.of(Component.literal(
-						"Wartezeit in Sekunden zwischen dem Auslesen.")))
+						"Wartezeit in Sekunden zwischen dem Auslesen. Läuft nur bei Farming, Mining oder Foraging und stoppt nach 5 Minuten ohne diese Skills.")))
 				.binding(60, () -> HANDLER.instance().collectionScannerIntervalSeconds, value -> HANDLER.instance().collectionScannerIntervalSeconds = Math.max(5, value))
 				.controller(opt -> IntegerFieldControllerBuilder.create(opt)
 						.min(5)
@@ -363,7 +363,7 @@ public class EmfConfig {
 		Option<Boolean> collectionScanner = Option.<Boolean>createBuilder()
 				.name(Component.literal("Automatisch auslesen an/aus"))
 				.description(OptionDescription.of(Component.literal(
-						"Gesammelte Collection Items automatisch auslesen.")))
+						"Collection automatisch auslesen, sobald Farming, Mining oder Foraging erkannt wird. Stoppt nach 5 Minuten ohne diese Skills.")))
 				.binding(true, () -> HANDLER.instance().collectionScannerEnabled, value -> HANDLER.instance().collectionScannerEnabled = value)
 				.controller(TickBoxControllerBuilder::create)
 				.addListener((option, event) -> collectionInterval.setAvailable(option.pendingValue()))

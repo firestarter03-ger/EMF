@@ -4,6 +4,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fire.emf.ElementsMoreFeatures;
 import net.fire.emf.client.config.EmfConfig;
 import net.fire.emf.client.mixin.DialogScreenAccessor;
+import net.fire.emf.client.overlay.SkillOverlayTracker;
 import net.fire.emf.client.overlay.editor.OverlayEditorUtility;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -32,6 +33,7 @@ public final class CollectionScanner {
 	private static final Pattern GOAL_LINE = Pattern.compile(
 			"(?i)([0-9][0-9.,]*)\\s*->\\s*(Freigeschaltet|Nicht erreicht)");
 	private static final int WAIT_TICKS = 40;
+	private static final long COLLECTION_SKILL_IDLE_MS = 5L * 60L * 1000L;
 	private static final String RESOURCEBAG_BUTTON = "resourcebag";
 	private static final String OPEN_RESOURCEBAG_COMMAND = "trigger t_menu set 2003";
 
@@ -44,6 +46,7 @@ public final class CollectionScanner {
 	private static int waitTicks;
 	private static int forceCloseTicks;
 	private static long nextScanAtMs;
+	private static boolean intervalActive;
 	private static boolean hidingScreen;
 	private static String lastGoalParse;
 	private static String lastBagParse;
@@ -113,6 +116,8 @@ public final class CollectionScanner {
 	private static void tick(Minecraft client) {
 		if (client == null || client.getWindow() == null) {
 			resetState(false);
+			intervalActive = false;
+			nextScanAtMs = 0L;
 			return;
 		}
 
@@ -147,7 +152,25 @@ public final class CollectionScanner {
 			if (phase != Phase.IDLE) {
 				abortAndClose(client);
 			}
+			intervalActive = false;
 			return;
+		}
+
+		boolean collectionSkillActive = SkillOverlayTracker.hasRecentCollectionSkillActivity(COLLECTION_SKILL_IDLE_MS);
+		if (!collectionSkillActive) {
+			if (intervalActive) {
+				intervalActive = false;
+				nextScanAtMs = 0L;
+				if (phase != Phase.IDLE) {
+					abortAndClose(client);
+				}
+			}
+			return;
+		}
+
+		if (!intervalActive) {
+			intervalActive = true;
+			nextScanAtMs = System.currentTimeMillis();
 		}
 
 		if (phase == Phase.IDLE) {
@@ -462,6 +485,10 @@ public final class CollectionScanner {
 	}
 
 	private static void cooldown() {
+		if (!intervalActive) {
+			nextScanAtMs = 0L;
+			return;
+		}
 		int seconds = Math.max(5, EmfConfig.HANDLER.instance().collectionScannerIntervalSeconds);
 		nextScanAtMs = System.currentTimeMillis() + seconds * 1000L;
 	}
