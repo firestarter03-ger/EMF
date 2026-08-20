@@ -1,0 +1,29 @@
+{
+	"required": true,
+	"package": "net.fire.emf.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"ActionBarMixin",
+		"DialogScreenAccessor",
+		"GuiAccessor",
+		"GuiTitleMixin",
+		"KeyMappingAccessor",
+		"KeyMappingReleaseMixin",
+		"LocalPlayerMixin",
+		"MinecraftCombatAccessor",
+		"MinecraftMixin",
+		"MouseHandlerMixin",
+		"ChatComponentMixin",
+		"ChatScreenMixin",
+		"AbstractContainerScreenMixin",
+		"MultiPlayerGameModeMixin",
+		"ScreenMixin",
+		"YaclDropdownWidgetMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

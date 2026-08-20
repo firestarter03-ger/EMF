@@ -1,0 +1,48 @@
+{
+	"schemaVersion": 1,
+	"id": "emf",
+	"version": "${version}",
+	"name": "Elements More Features",
+	"description": "Custom Mod für den Datapack Spielmodus Elements ",
+	"authors": [
+		"firestarter03"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/emf/emf_icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.fire.emf.ElementsMoreFeatures"
+		],
+		"client": [
+			"net.fire.emf.client.ElementsMoreFeaturesClient"
+		],
+		"modmenu": [
+			"net.fire.emf.client.ModMenuIntegration"
+		],
+		"fabric-datagen": [
+			"net.fire.emf.client.ElementsMoreFeaturesDataGenerator"
+		]
+	},
+	"mixins": [
+		"emf.mixins.json",
+		{
+			"config": "emf.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*",
+		"yet_another_config_lib_v3": "*",
+		"modmenu": "*"
+	},
+	"suggests": {
+		"another_mod": "*"
+	}
+}
