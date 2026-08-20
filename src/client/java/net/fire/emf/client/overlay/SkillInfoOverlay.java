@@ -34,6 +34,7 @@ public final class SkillInfoOverlay {
 	private static final String LABEL_RESOURCES = "Res/Kills: ";
 	private static final String LABEL_RESOURCE_TARGET = "Res/Kills Ziel: ";
 	private static final String LABEL_COLLECTION = "Collection: ";
+	private static final String LABEL_DROPS = "Drops: ";
 	private static final String PREVIEW_SKILL = "Farming";
 	private static final String PREVIEW_SKILL_XP = "1234/min (74.0K/h)";
 	private static final String PREVIEW_NEXT_LEVEL = "12min";
@@ -143,7 +144,7 @@ public final class SkillInfoOverlay {
 	}
 
 	private static List<OverlayLine> previewLines() {
-		return visibleLines(new OverlaySnapshot(PREVIEW_SKILL, "Weizen", PREVIEW_SKILL_XP, PREVIEW_NEXT_LEVEL, PREVIEW_RESOURCES, PREVIEW_RESOURCE_TARGET, PREVIEW_COLLECTION, false));
+		return visibleLines(new OverlaySnapshot(PREVIEW_SKILL, "Weizen", PREVIEW_SKILL_XP, PREVIEW_NEXT_LEVEL, PREVIEW_RESOURCES, PREVIEW_RESOURCE_TARGET, PREVIEW_COLLECTION, false, null));
 	}
 
 	private static String previewTitle() {
@@ -153,7 +154,9 @@ public final class SkillInfoOverlay {
 	private static List<OverlayLine> visibleLines(OverlaySnapshot snapshot) {
 		EmfConfig config = EmfConfig.HANDLER.instance();
 		List<OverlayLine> lines = new ArrayList<>();
-		if (snapshot.collection() != null) {
+		if (snapshot.drops() != null) {
+			lines.add(new OverlayLine(LABEL_DROPS, snapshot.drops(), AQUA, GREEN, "", false));
+		} else if (snapshot.collection() != null) {
 			if (snapshot.collectionMax()) {
 				lines.add(new OverlayLine(LABEL_COLLECTION, snapshot.collection(), AQUA, GREEN, "", false));
 			} else {

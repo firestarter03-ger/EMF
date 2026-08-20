@@ -3,6 +3,7 @@ package net.fire.emf.client.title;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fire.emf.client.config.EmfConfig;
 import net.fire.emf.client.mixin.GuiAccessor;
+import net.fire.emf.client.overlay.SkillOverlayTracker;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
@@ -16,6 +17,7 @@ import java.util.regex.Pattern;
 public final class TitleAlerts {
 	private static final Pattern COLOR_CODES = Pattern.compile("§x(?:§[0-9a-fA-F]){6}|§[0-9a-fk-orA-FK-OR]");
 	private static final String CRAFTING_DONE_CHAT = "Crafting abgeschlossen.";
+	private static final String LOOT_PREFIX = "Loot:";
 	private static final String RESOURCE_BAG_TITLE = "Resourcebag voll";
 	private static final long RESOURCE_BAG_RELEASE_MS = 2000L;
 	private static final int CHIME_NOTE_COUNT = 25;
@@ -39,6 +41,9 @@ public final class TitleAlerts {
 		String text = clean(message.getString());
 		if (text.equalsIgnoreCase(CRAFTING_DONE_CHAT) || text.equalsIgnoreCase("Crafting abgeschlossen")) {
 			showCraftingDoneTitle();
+		}
+		if (startsWithLoot(text)) {
+			SkillOverlayTracker.onLootDrop();
 		}
 		LootRarityAlerts.onChat(message);
 	}
@@ -135,6 +140,10 @@ public final class TitleAlerts {
 
 	private static boolean isResourceBagFull(String text) {
 		return text.equalsIgnoreCase(RESOURCE_BAG_TITLE);
+	}
+
+	private static boolean startsWithLoot(String text) {
+		return text.regionMatches(true, 0, LOOT_PREFIX, 0, LOOT_PREFIX.length());
 	}
 
 	private static String clean(String text) {

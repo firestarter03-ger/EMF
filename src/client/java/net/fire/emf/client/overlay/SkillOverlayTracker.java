@@ -9,6 +9,8 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayDeque;
+import java.util.Locale;
+import java.util.Set;
 
 public final class SkillOverlayTracker {
 	private static final long SAMPLE_INTERVAL_MS = 1000L;
@@ -19,6 +21,7 @@ public final class SkillOverlayTracker {
 	private static final long COMBAT_IDLE_MS = 30_000L;
 	private static final long BLOCK_MATCH_WINDOW_MS = 2000L;
 	private static final String COMBAT_SKILL = "combat";
+	private static final Set<String> COLLECTION_SKILLS = Set.of("farming", "mining", "foraging");
 
 	private static String skill;
 	private static String resourceName;
@@ -29,10 +32,13 @@ public final class SkillOverlayTracker {
 	private static long lastRecognizedMs;
 	private static long lastGainMs;
 	private static long lastSampleMs;
+	private static long lastCollectionSkillActivityMs;
+	private static long dropCount;
 	private static String pendingBrokenResource;
 	private static long pendingBrokenResourceMs;
 	private static final ArrayDeque<Sample> xpSamples = new ArrayDeque<>();
 	private static final ArrayDeque<Sample> resourceSamples = new ArrayDeque<>();
+	private static final ArrayDeque<Sample> dropSamples = new ArrayDeque<>();
 
 	private SkillOverlayTracker() {
 	}
@@ -54,7 +60,7 @@ public final class SkillOverlayTracker {
 			SkillXpDebug.actionBar(overlayText, false, "Actionbar nicht sichtbar");
 		}
 
-		if (recognized && now - lastSampleMs >= SAMPLE_INTERVAL_MS) {
+		if ((recognized || isCombatSessionActive()) && now - lastSampleMs >= SAMPLE_INTERVAL_MS) {
 			recordSample(now);
 			lastSampleMs = now;
 		}
@@ -113,8 +119,23 @@ public final class SkillOverlayTracker {
 			}
 		}
 
+		String dropsText = null;
+		if (isCombatSkill()) {
+			double dropsPerMin = ratePerMinute(dropSamples);
+			dropsText = OverlayFormat.compact(dropsPerMin) + "/min";
+		}
+
 		return new OverlaySnapshot(skill, resourceName, skillXp, nextLevel, resourcesText, resourceTarget,
-				collectionText(resourceName), collectionMax(resourceName));
+				collectionText(resourceName), collectionMax(resourceName), dropsText);
+	}
+
+	public static void onLootDrop() {
+		if (!isCombatSessionActive()) {
+			return;
+		}
+		dropCount++;
+		lastGainMs = System.currentTimeMillis();
+		SkillXpDebug.calculation("Combat-Drop gezählt: " + dropCount);
 	}
 
 	public static void onBlockBroken(BlockState state) {
@@ -134,6 +155,10 @@ public final class SkillOverlayTracker {
 	private static boolean applyReading(SkillReading reading, long now) {
 		if (reading == null) {
 			return false;
+		}
+
+		if (isCollectionSkillName(reading.skill())) {
+			lastCollectionSkillActivityMs = now;
 		}
 
 		if (skill == null || !skill.equalsIgnoreCase(reading.skill())) {
@@ -187,9 +212,11 @@ public final class SkillOverlayTracker {
 	private static void recordSample(long now) {
 		boolean needXp = EmfConfig.skillXpNeedsXpRate();
 		boolean needResources = EmfConfig.skillXpNeedsResourceRate();
-		if (!needXp && !needResources) {
+		boolean needDrops = isCombatSkill();
+		if (!needXp && !needResources && !needDrops) {
 			xpSamples.clear();
 			resourceSamples.clear();
+			dropSamples.clear();
 			return;
 		}
 
@@ -205,6 +232,12 @@ public final class SkillOverlayTracker {
 		} else {
 			resourceSamples.clear();
 		}
+		if (needDrops) {
+			dropSamples.addLast(new Sample(now, dropCount));
+			trimWindow(dropSamples, now);
+		} else {
+			dropSamples.clear();
+		}
 
 		if (!SkillXpDebug.enabled()) {
 			return;
@@ -213,6 +246,7 @@ public final class SkillOverlayTracker {
 		EmfConfig config = EmfConfig.HANDLER.instance();
 		double xpPerMin = needXp ? ratePerMinute(xpSamples) : 0.0;
 		double resPerMin = needResources ? ratePerMinute(resourceSamples) : 0.0;
+		double dropsPerMin = needDrops ? ratePerMinute(dropSamples) : 0.0;
 		StringBuilder message = new StringBuilder("Sample");
 		if (needXp) {
 			message.append(" XP=").append(describeSamples(xpSamples))
@@ -233,6 +267,10 @@ public final class SkillOverlayTracker {
 				message.append(" | remainingRes=").append(remaining)
 						.append(" Ziel=").append(perSecond > 0.0 ? formatEta(remaining / perSecond) : "--");
 			}
+		}
+		if (needDrops) {
+			message.append(" | Drops=").append(describeSamples(dropSamples))
+					.append(" -> ").append(OverlayFormat.compact(dropsPerMin)).append("/min");
 		}
 		SkillXpDebug.calculation(message.toString());
 	}
@@ -361,19 +399,35 @@ public final class SkillOverlayTracker {
 		return hasSnapshot && isCombatSkill();
 	}
 
+	public static boolean hasRecentCollectionSkillActivity(long maxIdleMs) {
+		if (lastCollectionSkillActivityMs <= 0L || maxIdleMs < 0L) {
+			return false;
+		}
+		return System.currentTimeMillis() - lastCollectionSkillActivityMs <= maxIdleMs;
+	}
+
+	private static boolean isCollectionSkillName(String name) {
+		return name != null && COLLECTION_SKILLS.contains(name.toLowerCase(Locale.ROOT).trim());
+	}
+
 	private static void resetSession(SkillReading reading, long now) {
 		skill = reading.skill();
 		resourceName = null;
 		currentXp = reading.currentXp();
 		targetXp = reading.targetXp();
 		resources = reading.resources();
+		dropCount = 0L;
 		xpSamples.clear();
 		resourceSamples.clear();
+		dropSamples.clear();
 		pendingBrokenResource = null;
 		pendingBrokenResourceMs = 0L;
 		lastSampleMs = now;
 		xpSamples.addLast(new Sample(now, currentXp));
 		resourceSamples.addLast(new Sample(now, resources));
+		if (isCombatSkill()) {
+			dropSamples.addLast(new Sample(now, dropCount));
+		}
 	}
 
 	private static void reset() {
@@ -382,6 +436,7 @@ public final class SkillOverlayTracker {
 		currentXp = 0L;
 		targetXp = 0L;
 		resources = 0L;
+		dropCount = 0L;
 		hasSnapshot = false;
 		lastRecognizedMs = 0L;
 		lastGainMs = 0L;
@@ -390,14 +445,16 @@ public final class SkillOverlayTracker {
 		pendingBrokenResourceMs = 0L;
 		xpSamples.clear();
 		resourceSamples.clear();
+		dropSamples.clear();
 	}
 
 	public static void forgetPlayer() {
+		lastCollectionSkillActivityMs = 0L;
 		reset();
 	}
 
 	public record OverlaySnapshot(String skill, String resourceName, String skillXp, String nextLevel, String resources,
-			String resourceTarget, String collection, boolean collectionMax) {
+			String resourceTarget, String collection, boolean collectionMax, String drops) {
 	}
 
 	private static String collectionText(String resource) {
