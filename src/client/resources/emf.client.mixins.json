@@ -16,6 +16,8 @@
 		"ChatComponentMixin",
 		"ChatScreenMixin",
 		"AbstractContainerScreenMixin",
+		"AbstractContainerScreenAccessor",
+		"InventoryScreenMixin",
 		"MultiPlayerGameModeMixin",
 		"ScreenMixin",
 		"YaclDropdownWidgetMixin"

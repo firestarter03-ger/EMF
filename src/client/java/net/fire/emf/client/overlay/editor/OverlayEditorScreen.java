@@ -54,13 +54,20 @@ public class OverlayEditorScreen extends Screen {
 	private int skillSettingsBoxWidth;
 	private int skillSettingsBoxHeight;
 
+	private final boolean openedFromPlayerInventory;
+
 	public OverlayEditorScreen() {
 		super(Component.literal("Overlay Editor"));
 		this.previousScreen = Minecraft.getInstance().screen;
-		overlays.add(new SkillInfoDraggableOverlay());
-		overlays.add(new LevelInfoDraggableOverlay());
-		overlays.add(new SkillFruitDraggableOverlay());
-		overlays.add(new AutominerCooldownDraggableOverlay());
+		this.openedFromPlayerInventory = previousScreen instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen;
+		if (openedFromPlayerInventory) {
+			overlays.add(new net.fire.emf.client.session.SessionSummaryDraggableOverlay());
+		} else {
+			overlays.add(new SkillInfoDraggableOverlay());
+			overlays.add(new LevelInfoDraggableOverlay());
+			overlays.add(new SkillFruitDraggableOverlay());
+			overlays.add(new AutominerCooldownDraggableOverlay());
+		}
 	}
 
 	@Override
@@ -823,6 +830,9 @@ public class OverlayEditorScreen extends Screen {
 			config.skillFruitOverlayEnabled = enabled;
 		} else if (overlay instanceof AutominerCooldownDraggableOverlay) {
 			OffhandSwapper.setDetectionEnabled(enabled, false);
+		} else if (overlay instanceof net.fire.emf.client.session.SessionSummaryDraggableOverlay) {
+			config.showSessionSummaryOverlay = enabled;
+			config.sessionSummaryOverlayEnabled = enabled;
 		}
 	}
 

@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class GuiTitleMixin {
 	@Inject(method = "setTitle(Lnet/minecraft/network/chat/Component;)V", at = @At("HEAD"), cancellable = true)
 	private void emf$blockResourceBagTitle(Component title, CallbackInfo ci) {
+		net.fire.emf.client.session.SessionTracker.onTitle(title);
 		if (TitleAlerts.shouldBlockTitle(title)) {
 			ci.cancel();
 		}
@@ -19,6 +20,7 @@ public class GuiTitleMixin {
 
 	@Inject(method = "setSubtitle(Lnet/minecraft/network/chat/Component;)V", at = @At("HEAD"), cancellable = true)
 	private void emf$blockResourceBagSubtitle(Component subtitle, CallbackInfo ci) {
+		net.fire.emf.client.session.SessionTracker.onTitle(subtitle);
 		if (TitleAlerts.shouldBlockTitle(subtitle)) {
 			ci.cancel();
 		}

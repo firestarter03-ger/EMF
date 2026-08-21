@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(MultiPlayerGameMode.class)
@@ -39,5 +40,10 @@ public class MultiPlayerGameModeMixin {
 	@Inject(method = "useItem", at = @At("HEAD"))
 	private void emf$onUseItem(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
 		SkillFruitTracker.onUse(player, hand);
+	}
+
+	@Inject(method = "attack", at = @At("HEAD"))
+	private void emf$onAttack(Player player, net.minecraft.world.entity.Entity target, CallbackInfo ci) {
+		net.fire.emf.client.session.SessionTracker.onAttackEntity(target);
 	}
 }

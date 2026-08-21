@@ -13,7 +13,9 @@ public class ActionBarMixin {
 	@Inject(method = "setOverlayMessage(Lnet/minecraft/network/chat/Component;Z)V", at = @At("TAIL"))
 	private void emf$onSetOverlayMessage(Component message, boolean animate, CallbackInfo ci) {
 		if (message != null) {
-			SkillOverlayTracker.onActionBar(message.getString());
+			String text = message.getString();
+			SkillOverlayTracker.onActionBar(text);
+			net.fire.emf.client.session.SessionTracker.onActionBar(text);
 		}
 	}
 }

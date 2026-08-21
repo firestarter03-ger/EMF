@@ -1,0 +1,22 @@
+{
+  "revision": 1,
+  "specialItems": [
+    {
+      "specialId": "mount",
+      "match": {
+        "itemName": "Reittier"
+      },
+      "item": {
+        "itemId": "special:mount",
+        "registryId": "minecraft:placeholder",
+        "itemName": "Reittier",
+        "itemData": {
+          "itemName": "Reittier",
+          "itemNameJson": "",
+          "hoverText": "",
+          "hoverLineJsons": []
+        }
+      }
+    }
+  ]
+}

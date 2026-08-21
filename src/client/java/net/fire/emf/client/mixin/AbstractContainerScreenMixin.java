@@ -2,8 +2,10 @@ package net.fire.emf.client.mixin;
 
 import net.fire.emf.client.overlay.editor.OverlayEditorButtonUtility;
 import net.fire.emf.client.overlay.editor.OverlayEditorUtility;
+import net.fire.emf.client.session.SessionSummaryOverlay;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,7 +26,20 @@ public class AbstractContainerScreenMixin {
 
 	@Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
 	private void emf$onMouseClicked(MouseButtonEvent event, boolean doubled, CallbackInfoReturnable<Boolean> cir) {
+		if ((Object) this instanceof InventoryScreen
+				&& SessionSummaryOverlay.handleClick(event.x(), event.y(), event.button())) {
+			cir.setReturnValue(true);
+			return;
+		}
 		if (OverlayEditorButtonUtility.handleButtonClick(event.x(), event.y(), event.button())) {
+			cir.setReturnValue(true);
+		}
+	}
+
+	@Inject(method = "mouseScrolled", at = @At("HEAD"), cancellable = true)
+	private void emf$sessionScroll(double mouseX, double mouseY, double scrollX, double scrollY, CallbackInfoReturnable<Boolean> cir) {
+		if ((Object) this instanceof InventoryScreen
+				&& SessionSummaryOverlay.handleScroll(mouseX, mouseY, scrollY)) {
 			cir.setReturnValue(true);
 		}
 	}

@@ -7,6 +7,7 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.item.Item;
@@ -14,7 +15,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.ItemLore;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 public final class LootRarityAlerts {
@@ -97,17 +103,99 @@ public final class LootRarityAlerts {
 	}
 
 	private static String hoverText(Component message) {
+		return hoverTextFor(message);
+	}
+
+	public static String hoverTextFor(Component message) {
 		StringBuilder text = new StringBuilder();
-		message.visit((style, ignored) -> {
-			appendHover(text, style.getHoverEvent());
-			return Optional.empty();
-		}, Style.EMPTY);
+		for (Component line : hoverComponentsFor(message)) {
+			appendLine(text, clean(line.getString()));
+		}
 		return text.toString();
 	}
 
-	private static void appendHover(StringBuilder text, HoverEvent hover) {
+	public static List<Component> hoverComponentsFor(Component message) {
+		List<Component> lines = new ArrayList<>();
+		if (message == null) {
+			return lines;
+		}
+		// Auf dem Mainserver hängt derselbe Hover oft an mehreren Chat-Segmenten —
+		// nur den ersten verwenden, sonst doppelter Tooltip-Inhalt.
+		HoverEvent firstHover = findFirstHover(message);
+		if (firstHover != null) {
+			appendHoverComponents(lines, firstHover);
+		}
+		return stripInteractions(lines);
+	}
+
+	private static HoverEvent findFirstHover(Component message) {
+		AtomicReference<HoverEvent> found = new AtomicReference<>();
+		message.visit((style, ignored) -> {
+			if (found.get() != null || style == null) {
+				return Optional.empty();
+			}
+			HoverEvent hover = style.getHoverEvent();
+			if (hover != null) {
+				found.set(hover);
+			}
+			return Optional.empty();
+		}, Style.EMPTY);
+		return found.get();
+	}
+
+	public static Component lootNameComponent(Component message) {
+		if (message == null) {
+			return Component.empty();
+		}
+		MutableComponent result = Component.empty();
+		StringBuilder consumed = new StringBuilder();
+		AtomicBoolean pastPrefix = new AtomicBoolean(false);
+		message.visit((style, text) -> {
+			if (text == null || text.isEmpty()) {
+				return Optional.empty();
+			}
+			Style cleanStyle = withoutInteractions(style);
+			if (pastPrefix.get()) {
+				if (result.getString().isEmpty() && text.isBlank()) {
+					return Optional.empty();
+				}
+				result.append(Component.literal(text).withStyle(cleanStyle));
+				return Optional.empty();
+			}
+			consumed.append(text);
+			String soFar = consumed.toString();
+			int index = indexOfLootPrefix(soFar);
+			if (index < 0) {
+				return Optional.empty();
+			}
+			pastPrefix.set(true);
+			String after = soFar.substring(index + LOOT_PREFIX.length()).replaceFirst("^\\s+", "");
+			if (!after.isEmpty()) {
+				result.append(Component.literal(after).withStyle(cleanStyle));
+			}
+			return Optional.empty();
+		}, Style.EMPTY);
+		if (!result.getString().isBlank()) {
+			return result;
+		}
+		String plain = clean(message.getString());
+		if (startsWithLoot(plain)) {
+			return Component.literal(plain.substring(LOOT_PREFIX.length()).trim());
+		}
+		return Component.literal(plain);
+	}
+
+	private static int indexOfLootPrefix(String text) {
+		if (text == null) {
+			return -1;
+		}
+		String lower = text.toLowerCase(Locale.ROOT);
+		return lower.indexOf(LOOT_PREFIX.toLowerCase(Locale.ROOT));
+	}
+
+	private static void appendHoverComponents(List<Component> lines, HoverEvent hover) {
 		if (hover instanceof HoverEvent.ShowText showText) {
-			appendLine(text, clean(showText.value().getString()));
+			splitStyledLines(lines, showText.value());
 			return;
 		}
 		if (!(hover instanceof HoverEvent.ShowItem showItem)) {
@@ -118,25 +206,98 @@ public final class LootRarityAlerts {
 			if (stack == null || stack.isEmpty()) {
 				return;
 			}
-			appendLine(text, clean(stack.getHoverName().getString()));
+			Minecraft client = Minecraft.getInstance();
+			if (client != null && client.level != null) {
+				List<Component> tooltip = stack.getTooltipLines(
+						Item.TooltipContext.of(client.level), client.player, TooltipFlag.NORMAL);
+				for (Component line : tooltip) {
+					lines.add(line.copy());
+				}
+				return;
+			}
+			lines.add(stack.getHoverName().copy());
 			ItemLore lore = stack.get(DataComponents.LORE);
 			if (lore != null) {
 				for (Component line : lore.lines()) {
-					appendLine(text, clean(line.getString()));
-				}
-			}
-			Minecraft client = Minecraft.getInstance();
-			if (client != null && client.level != null) {
-				for (Component line : stack.getTooltipLines(Item.TooltipContext.of(client.level), client.player, TooltipFlag.NORMAL)) {
-					appendLine(text, clean(line.getString()));
+					lines.add(line.copy());
 				}
 			}
 		} catch (RuntimeException ignored) {
 		}
 	}
 
+	private static void splitStyledLines(List<Component> lines, Component source) {
+		if (source == null) {
+			return;
+		}
+		AtomicReference<MutableComponent> current = new AtomicReference<>(Component.empty());
+		source.visit((style, text) -> {
+			if (text == null || text.isEmpty()) {
+				return Optional.empty();
+			}
+			Style cleanStyle = withoutInteractions(style);
+			String[] parts = text.split("\n", -1);
+			for (int i = 0; i < parts.length; i++) {
+				if (i > 0) {
+					MutableComponent finished = current.get();
+					if (finished.getString().isEmpty()) {
+						lines.add(Component.literal(" "));
+					} else {
+						lines.add(finished);
+					}
+					current.set(Component.empty());
+				}
+				if (!parts[i].isEmpty()) {
+					current.get().append(Component.literal(parts[i]).withStyle(cleanStyle));
+				}
+			}
+			return Optional.empty();
+		}, Style.EMPTY);
+		MutableComponent finished = current.get();
+		if (!finished.getString().isEmpty()) {
+			lines.add(finished);
+		}
+	}
+
+	private static List<Component> stripInteractions(List<Component> lines) {
+		List<Component> cleaned = new ArrayList<>(lines.size());
+		for (Component line : lines) {
+			cleaned.add(copyWithoutInteractions(line));
+		}
+		return cleaned;
+	}
+
+	private static Component copyWithoutInteractions(Component component) {
+		if (component == null) {
+			return Component.empty();
+		}
+		MutableComponent result = Component.empty();
+		component.visit((style, text) -> {
+			if (text == null || text.isEmpty()) {
+				return Optional.empty();
+			}
+			result.append(Component.literal(text).withStyle(withoutInteractions(style)));
+			return Optional.empty();
+		}, Style.EMPTY);
+		return result.getString().isEmpty() ? Component.literal(" ") : result;
+	}
+
+	private static Style withoutInteractions(Style style) {
+		if (style == null) {
+			return Style.EMPTY;
+		}
+		Style cleaned = style;
+		if (style.getHoverEvent() != null) {
+			cleaned = cleaned.withHoverEvent(null);
+		}
+		if (style.getClickEvent() != null) {
+			cleaned = cleaned.withClickEvent(null);
+		}
+		return cleaned;
+	}
+
 	private static void appendLine(StringBuilder text, String line) {
-		if (line == null || line.isBlank()) {
+		if (line == null) {
 			return;
 		}
 		if (!text.isEmpty()) {

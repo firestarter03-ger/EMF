@@ -9,6 +9,7 @@ import dev.isxander.yacl3.api.controller.EnumDropdownControllerBuilder;
 import dev.isxander.yacl3.api.controller.FloatSliderControllerBuilder;
 import dev.isxander.yacl3.api.controller.IntegerFieldControllerBuilder;
 import dev.isxander.yacl3.api.controller.IntegerSliderControllerBuilder;
+import dev.isxander.yacl3.api.controller.StringControllerBuilder;
 import dev.isxander.yacl3.api.controller.TickBoxControllerBuilder;
 import dev.isxander.yacl3.config.v2.api.ConfigClassHandler;
 import dev.isxander.yacl3.config.v2.api.SerialEntry;
@@ -39,6 +40,9 @@ public class EmfConfig {
 
 	@SerialEntry
 	public boolean debugDialogScreen = false;
+
+	@SerialEntry
+	public boolean debugSessionSummary = false;
 
 	@SerialEntry
 	public boolean showSkillXpOverlay = true;
@@ -217,12 +221,51 @@ public class EmfConfig {
 	@SerialEntry
 	public int collectionScannerIntervalSeconds = 60;
 
+	@SerialEntry
+	public boolean sessionSummaryEnabled = true;
+
+	@SerialEntry
+	public boolean showSessionSummaryOverlay = true;
+
+	@SerialEntry
+	public boolean sessionSummaryOverlayEnabled = true;
+
+	@SerialEntry
+	public int sessionSummaryOverlayX = -1;
+
+	@SerialEntry
+	public int sessionSummaryOverlayY = -1;
+
+	@SerialEntry
+	public float sessionSummaryOverlayScale = 1.0f;
+
+	/** EMF Community-Service: Registrierung, Sync, Chat usw. */
+	@SerialEntry
+	public boolean dataTrackingEnabled = true;
+
+	/** Basis-URL des EMF-Backends (ohne trailing slash), z. B. https://emf.jkb-lasszocken.net */
+	@SerialEntry
+	public String apiBaseUrl = DEFAULT_API_BASE_URL;
+
+	@SerialEntry
+	public boolean debugApi = false;
+
+	public static final String DEFAULT_API_BASE_URL = "https://emf.jkb-lasszocken.net";
+
 	public static boolean debugSkillXp() {
 		return HANDLER.instance().debugSkillXp;
 	}
 
 	public static boolean debugDialogScreen() {
 		return HANDLER.instance().debugDialogScreen;
+	}
+
+	public static boolean debugApi() {
+		return HANDLER.instance().debugApi;
+	}
+
+	public static boolean isDataTrackingEnabled() {
+		return HANDLER.instance().dataTrackingEnabled;
 	}
 
 	public static boolean skillXpOverlayVisible() {
@@ -257,6 +300,13 @@ public class EmfConfig {
 
 	public static boolean autominerCooldownOverlayVisible() {
 		return OffhandSwapper.isDetectionEnabled();
+	}
+
+	public static boolean sessionSummaryOverlayVisible() {
+		EmfConfig config = HANDLER.instance();
+		return config.sessionSummaryEnabled
+				&& config.showSessionSummaryOverlay
+				&& config.sessionSummaryOverlayEnabled;
 	}
 
 	public static int resourceBagHideAfterMs() {
@@ -473,6 +523,33 @@ public class EmfConfig {
 				.addListener((option, event) -> collectionInterval.setAvailable(option.pendingValue()))
 				.build();
 
+		Option<Boolean> sessionSummary = Option.<Boolean>createBuilder()
+				.name(Component.literal("Sessionzusammenfassung an/aus"))
+				.description(OptionDescription.of(Component.literal(
+						"Erfasst Sessionzeit, Kills und Loot ab Serverjoin.\nAnzeige nur im Spielerinventar.\nWenn aus: keine Sessions starten oder speichern.")))
+				.binding(true, () -> HANDLER.instance().sessionSummaryEnabled, value -> HANDLER.instance().sessionSummaryEnabled = value)
+				.controller(TickBoxControllerBuilder::create)
+				.build();
+
+		Option<Boolean> communityService = Option.<Boolean>createBuilder()
+				.name(Component.literal("EMF Community-Service an/aus"))
+				.description(OptionDescription.of(Component.literal(
+						"De-/Aktivieren ob sich die Mod mit dem eigenständigen dedizierten EMF-Server verbinden darf.\n\n"
+								+ "Aktiviert: Sendet gesammelte Daten an den Server um sie zu synchronisieren. Es wird NICHT die UUIDs erfasst und gespeichert, nur dein Spielername.\n\n"
+								+ "Deaktiviert: Sendet/Empfängt keine Daten vom Server.\n"
+								+ "Update Checker bleibt aktiv.")))
+				.binding(true, () -> HANDLER.instance().dataTrackingEnabled, value -> HANDLER.instance().dataTrackingEnabled = value)
+				.controller(TickBoxControllerBuilder::create)
+				.build();
+
+		Option<String> apiBaseUrl = Option.<String>createBuilder()
+				.name(Component.literal("API Server-URL"))
+				.description(OptionDescription.of(Component.literal(
+						"Basis-URL des EMF-Backends ohne Slash am Ende.\nStandard: " + DEFAULT_API_BASE_URL)))
+				.binding(DEFAULT_API_BASE_URL, () -> HANDLER.instance().apiBaseUrl, value -> HANDLER.instance().apiBaseUrl = value == null || value.isBlank() ? DEFAULT_API_BASE_URL : value.trim())
+				.controller(StringControllerBuilder::create)
+				.build();
+
 		return YetAnotherConfigLib.createBuilder()
 				.title(Component.literal("Elements More Features"))
 				.category(ConfigCategory.createBuilder()
@@ -521,6 +598,19 @@ public class EmfConfig {
 								.option(collectionScanner)
 								.option(collectionInterval)
 								.build())
+						.group(OptionGroup.createBuilder()
+								.name(Component.literal("Session Zusammenfassung"))
+								.option(sessionSummary)
+								.build())
+						.build())
+				.category(ConfigCategory.createBuilder()
+						.name(Component.literal("Community Service"))
+						.tooltip(Component.literal("Einstellungen des Community Services"))
+						.group(OptionGroup.createBuilder()
+								.name(Component.literal("Verbindung"))
+								.option(communityService)
+								.option(apiBaseUrl)
+								.build())
 						.build())
 				.category(ConfigCategory.createBuilder()
 						.name(Component.literal("Debug"))
@@ -537,6 +627,20 @@ public class EmfConfig {
 								.description(OptionDescription.of(Component.literal(
 										"Schreibt in den Log, ob der aktuelle Screen ein DialogScreen ist und welche Titel, Body-Elemente, Inputs und Buttons/Actions gelesen werden. Prüft zusätzlich Elements-Menü (Button Resourcebag) und Resourcebag (Item + Text mit Tooltip).")))
 								.binding(false, () -> HANDLER.instance().debugDialogScreen, value -> HANDLER.instance().debugDialogScreen = value)
+								.controller(TickBoxControllerBuilder::create)
+								.build())
+						.option(Option.<Boolean>createBuilder()
+								.name(Component.literal("Debug Session Zusammenfassung"))
+								.description(OptionDescription.of(Component.literal(
+										"Loggt erkannte Mobnamen, Kill-Zuordnung und Loot-Drops inkl. zugewiesenem Mob.")))
+								.binding(false, () -> HANDLER.instance().debugSessionSummary, value -> HANDLER.instance().debugSessionSummary = value)
+								.controller(TickBoxControllerBuilder::create)
+								.build())
+						.option(Option.<Boolean>createBuilder()
+								.name(Component.literal("Debug Server"))
+								.description(OptionDescription.of(Component.literal(
+										"Aktiviert /emf server status und /emf server refresh sowie API-Debug-Logs.")))
+								.binding(false, () -> HANDLER.instance().debugApi, value -> HANDLER.instance().debugApi = value)
 								.controller(TickBoxControllerBuilder::create)
 								.build())
 						.build())

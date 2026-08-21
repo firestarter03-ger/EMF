@@ -2,8 +2,11 @@ package net.fire.emf.client.title;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fire.emf.client.config.EmfConfig;
+import net.fire.emf.client.itempool.ItemReceiveTracker;
 import net.fire.emf.client.mixin.GuiAccessor;
 import net.fire.emf.client.overlay.SkillOverlayTracker;
+import net.fire.emf.client.session.SessionComponents;
+import net.fire.emf.client.session.SessionTracker;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
@@ -12,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.level.block.NoteBlock;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 public final class TitleAlerts {
@@ -44,6 +48,16 @@ public final class TitleAlerts {
 		}
 		if (startsWithLoot(text)) {
 			SkillOverlayTracker.onLootDrop();
+			ItemReceiveTracker.onChatMessage(message);
+			Component nameComponent = LootRarityAlerts.lootNameComponent(message);
+			List<Component> hoverComponents = LootRarityAlerts.hoverComponentsFor(message);
+			String hoverPlain = LootRarityAlerts.hoverTextFor(message);
+			SessionTracker.onLootDrop(
+					nameComponent.getString().trim(),
+					SessionComponents.toJson(nameComponent),
+					hoverPlain,
+					SessionComponents.toJsonList(hoverComponents),
+					LootRarity.highestIn(hoverPlain));
 		}
 		LootRarityAlerts.onChat(message);
 	}
